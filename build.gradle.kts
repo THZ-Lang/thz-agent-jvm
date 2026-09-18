@@ -1,7 +1,7 @@
-﻿// ==============================================================================
-// thz-agent â€” Standalone AI Coding Agent para THZ-LANG
+// ==============================================================================
+// thz-agent — Standalone AI Coding Agent para THZ-LANG
 //
-// Assistente de cÃ³digo autÃ´nomo que roda no terminal, similar a Claude Code /
+// Assistente de código autônomo que roda no terminal, similar a Claude Code /
 // Cursor / Aider. Suporta modelos locais (llama.cpp) e APIs remotas.
 // ==============================================================================
 
