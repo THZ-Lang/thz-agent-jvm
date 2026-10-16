@@ -5,6 +5,7 @@ import java.net.*;
 import java.net.http.*;
 import java.nio.file.*;
 import java.time.Duration;
+import java.util.*;
 
 /**
  * Backend local usando llama.cpp.
@@ -131,8 +132,11 @@ public final class LocalLlmBackend implements LlmBackend {
                 .append("}");
         }
         json.append("],\"max_tokens\":").append(maxTokens)
-            .append(",\"temperature\":").append(String.format(java.util.Locale.US, "%.2f", temperature))
-            .append(",\"stop\":[\"<|im_end|>\",\"<|im_start|>\",\"\\n[usuario]\",\"\\n[user]\",\"## Ferramentas\"]")
+            .append(",\"temperature\":").append(String.format(java.util.Locale.US, "%.2f", Math.max(0.2f, temperature)))
+            .append(",\"repeat_penalty\":1.25")
+            .append(",\"presence_penalty\":0.5")
+            .append(",\"frequency_penalty\":0.5")
+            .append(",\"stop\":[\"<|im_end|>\",\"<|im_start|>\",\"\\n[usuario]\",\"\\n[user]\",\"## Ferramentas\",\"### Instruções\",\"\\n## Instruções\",\"<|endoftext|>\"]")
             .append(",\"stream\":false}");
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -150,7 +154,65 @@ public final class LocalLlmBackend implements LlmBackend {
         }
 
         String body = response.body();
-        return extrairConteudoResposta(body);
+        return truncarRepeticoes(extrairConteudoResposta(body));
+    }
+
+    /**
+     * Remove tokens especiais e trunca degenerações de repetição consecutivas comuns em modelos compactos (0.5B).
+     */
+    public static String truncarRepeticoes(String texto) {
+        if (texto == null || texto.isBlank()) return "";
+
+        // 1. Remover marcadores de fim residuais ou vazamentos de cabeçalhos de sistema
+        String[] stops = new String[]{
+            "<|im_end|>", "<|im_start|>", "<|endoftext|>",
+            "\n[usuario]", "\n[user]", "\n[assistente]", "\n[assistant]",
+            "\n## Instruções", "\n### Instruções", "\n## Ferramentas", "\n### Ferramentas",
+            "\n## SINTAXE", "\n## COMPATIBILIDADE", "\n## OBJETIVO", "\n## Padrão ReAct",
+            "\nUsuário:", "\nUsuario:", "\nUser:"
+        };
+        for (String stop : stops) {
+            int stopIdx = texto.indexOf(stop);
+            if (stopIdx != -1) {
+                texto = texto.substring(0, stopIdx);
+            }
+        }
+
+        texto = texto.strip();
+
+        // 2. Detecção de repetição de parágrafos consecutivos (inclusive listas numeradas)
+        String[] paragrafos = texto.split("\\n\\s*\\n");
+        if (paragrafos.length > 1) {
+            List<String> unicos = new ArrayList<>();
+            Set<String> normalizadosVistos = new HashSet<>();
+            for (String p : paragrafos) {
+                String pLimpo = p.strip();
+                if (pLimpo.isBlank()) continue;
+                // Normaliza removendo numeração de início (ex: "1. ", "10) ")
+                String pNorm = pLimpo.replaceAll("^\\d+[\\.\\)]\\s*", "").strip();
+                if (pNorm.length() > 20 && normalizadosVistos.contains(pNorm)) {
+                    break;
+                }
+                normalizadosVistos.add(pNorm);
+                unicos.add(pLimpo);
+            }
+            texto = String.join("\n\n", unicos);
+        }
+
+        // 3. Detecção de ciclo repetitivo em texto contínuo (frases ou blocos repetidos imediatamente)
+        // Procura padrão X + X onde length(X) >= 30
+        for (int tam = 40; tam <= 250; tam++) {
+            for (int i = 0; i + (tam * 2) <= texto.length(); i++) {
+                String pedaco1 = texto.substring(i, i + tam);
+                String pedaco2 = texto.substring(i + tam, i + (tam * 2));
+                if (pedaco1.equals(pedaco2)) {
+                    // Trunca a partir da primeira repetição
+                    return texto.substring(0, i + tam).strip();
+                }
+            }
+        }
+
+        return texto;
     }
 
     private static String extrairConteudoResposta(String jsonResponse) {

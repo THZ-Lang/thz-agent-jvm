@@ -53,8 +53,8 @@ public final class AgentLoop {
             // 1. Montar mensagens estruturadas (system, user, assistant)
             var mensagensChat = context.montarMensagensChat(tools.gerarDescricoes());
 
-            // 2. Chamar LLM com temperatura baixa (0.15f) para fidelidade total a THZ-LANG
-            String resposta = limparTokensEspeciais(llm.gerarComMensagens(mensagensChat, 2048, 0.15f, 40, 0.95f));
+            // 2. Chamar LLM com parâmetros calibrados para concisão e fidelidade a THZ-LANG
+            String resposta = limparTokensEspeciais(llm.gerarComMensagens(mensagensChat, 768, 0.20f, 40, 0.95f));
 
             // 3. Verificar se é resposta final
             if (contemAnswer(resposta)) {
