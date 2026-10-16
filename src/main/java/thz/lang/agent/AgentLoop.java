@@ -21,6 +21,7 @@ public final class AgentLoop {
     private final TerminalUI ui;
     private final SessionMemory memory;
     private final String sessaoId;
+    private thz.lang.agent.rag.RagContextService ragService;
 
     private int turnoIdx = 0;
 
@@ -36,12 +37,28 @@ public final class AgentLoop {
         this.sessaoId = sessaoId;
     }
 
+    public void setRagService(thz.lang.agent.rag.RagContextService ragService) {
+        this.ragService = ragService;
+    }
+
+    public thz.lang.agent.rag.RagContextService getRagService() {
+        return ragService;
+    }
+
     /**
      * Executa o loop ReAct para um objetivo do usuário.
      */
     public String executar(String objetivo) {
         context.adicionarMensagem("usuario", objetivo);
         memory.salvarTurno(sessaoId, turnoIdx++, "usuario", objetivo);
+
+        // Recupera contexto semântico dinâmico do workspace via RAG
+        String contextoRag = "";
+        if (ragService != null) {
+            try {
+                contextoRag = ragService.obterContextoRelevante(objetivo, 2, 0.40);
+            } catch (Exception ignored) {}
+        }
 
         for (int i = 0; i < MAX_ITERACOES; i++) {
             // Verificar necessidade de compactação
@@ -50,11 +67,11 @@ public final class AgentLoop {
                 context.compactar();
             }
 
-            // 1. Montar prompt completo
-            String prompt = montarPromptComFerramentas();
+            // 1. Montar mensagens estruturadas (system, user, assistant) com RAG
+            var mensagensChat = context.montarMensagensChat(tools.gerarDescricoes(), contextoRag);
 
-            // 2. Chamar LLM
-            String resposta = llm.gerar(prompt, 2048, 0.7f, 40, 0.95f);
+            // 2. Chamar LLM com parâmetros calibrados para concisão e fidelidade a THZ-LANG
+            String resposta = limparTokensEspeciais(llm.gerarComMensagens(mensagensChat, 768, 0.20f, 40, 0.95f));
 
             // 3. Verificar se é resposta final
             if (contemAnswer(resposta)) {
@@ -152,21 +169,42 @@ public final class AgentLoop {
     }
 
     private ToolCall extrairAction(String resposta) {
-        // Formato: Action: nome(args)
-        Pattern p = Pattern.compile("Action:\\s*(\\w+)\\s*\\(([^)]*)\\)");
-        Matcher m = p.matcher(resposta);
-        if (m.find()) {
-            return new ToolCall(m.group(1), m.group(2));
+        int actionIdx = resposta.indexOf("Action:");
+        if (actionIdx != -1) {
+            String resto = resposta.substring(actionIdx + 7).trim();
+            int openParen = resto.indexOf('(');
+            int newline = resto.indexOf('\n');
+            if (openParen != -1 && (newline == -1 || openParen < newline)) {
+                String nome = resto.substring(0, openParen).trim();
+                int closeParen = resto.lastIndexOf(')');
+                if (closeParen > openParen) {
+                    String args = resto.substring(openParen + 1, closeParen).trim();
+                    return new ToolCall(nome, args);
+                }
+            } else if (newline != -1) {
+                String nome = resto.substring(0, newline).trim();
+                return new ToolCall(nome, "");
+            } else if (!resto.isEmpty()) {
+                return new ToolCall(resto, "");
+            }
         }
 
-        // Fallback: Action: nome
-        p = Pattern.compile("Action:\\s*(\\w+)");
-        m = p.matcher(resposta);
+        // Fallback via regex
+        Pattern p = Pattern.compile("Action:\\s*(\\w+)\\s*\\((.*)\\)", Pattern.DOTALL);
+        Matcher m = p.matcher(resposta);
         if (m.find()) {
-            return new ToolCall(m.group(1), "");
+            return new ToolCall(m.group(1), m.group(2).trim());
         }
 
         return null;
+    }
+
+    private static String limparTokensEspeciais(String s) {
+        if (s == null) return "";
+        return s.replace("<|im_end|>", "")
+                .replace("<|im_start|>", "")
+                .replace("<|endoftext|>", "")
+                .trim();
     }
 
     /** Representa uma chamada de ferramenta extraída da resposta do LLM */
