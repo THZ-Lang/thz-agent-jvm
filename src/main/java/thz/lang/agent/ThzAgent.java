@@ -31,6 +31,20 @@ public final class ThzAgent {
             return;
         }
 
+        // Modo export-dataset
+        if (argMap.containsKey("export-dataset") || (args.length > 0 && "export-dataset".equalsIgnoreCase(args[0]))) {
+            String destino = argMap.getOrDefault("export-dataset", "build/datasets/thz_instruct_train.jsonl");
+            if (destino.isBlank() || "true".equalsIgnoreCase(destino)) {
+                if (args.length > 1 && !args[1].startsWith("-")) {
+                    destino = args[1];
+                } else {
+                    destino = "build/datasets/thz_instruct_train.jsonl";
+                }
+            }
+            exportarDataset(destino, ui);
+            return;
+        }
+
         // Modo --sessoes
         if (argMap.containsKey("sessoes")) {
             listarSessoes();
@@ -68,8 +82,16 @@ public final class ThzAgent {
         String dir = Paths.get("").toAbsolutePath().toString();
         memory.criarSessao(sessaoId, modelo, dir);
 
-        // 5. Criar loop do agente
+        // 5. Inicializar RAG semântico do workspace
+        thz.lang.agent.rag.RagContextService rag = new thz.lang.agent.rag.RagContextService(dir);
+        rag.garantirIndexacao();
+        if (rag.isIndexado() && rag.getTotalArquivosIndexados() > 0) {
+            ui.exibirInfo("RAG: " + rag.getTotalArquivosIndexados() + " arquivos semânticos indexados no workspace.");
+        }
+
+        // 6. Criar loop do agente
         AgentLoop loop = new AgentLoop(backend, context, tools, approval, ui, memory, sessaoId);
+        loop.setRagService(rag);
 
         // Se invocado com prompt direto via CLI (--prompt ou -p), executa e sai
         if (argMap.containsKey("prompt")) {
@@ -222,15 +244,31 @@ public final class ThzAgent {
         memory.fechar();
     }
 
+    private static void exportarDataset(String caminho, TerminalUI ui) {
+        try {
+            Path destino = Paths.get(caminho).toAbsolutePath();
+            ui.exibirInfo("[THZ-Agent] Gerando dataset de instrução para Fine-Tuning LoRA...");
+            var exemplos = thz.lang.agent.training.ThzDatasetGenerator.gerarExemplosPadrao();
+            int total = thz.lang.agent.training.ThzDatasetGenerator.exportarJsonl(exemplos, destino);
+            ui.exibirSucesso(String.format("Dataset gerado com sucesso: %d exemplos em %s", total, destino));
+            ui.exibirInfo("Para iniciar o treinamento LoRA:");
+            ui.exibirInfo("  python scripts/train_lora.py --dataset " + destino);
+        } catch (Exception e) {
+            ui.exibirErro("Falha ao exportar dataset: " + e.getMessage());
+        }
+    }
+
     private static void exibirAjuda() {
         System.out.println("""
             THZ-Agent v%s — Assistente e Especialista de Código THZ-LANG
 
             Uso:
               thz agent [opções]
+              thz agent export-dataset [caminho]
 
             Opções:
               --prompt, -p <texto>  Executa um objetivo direto via CLI e finaliza
+              --export-dataset <arq> Exporta dataset ChatML para Fine-Tuning LoRA
               --modelo <path>       Modelo GGUF local
               --gpu <n>             Nº de GPU layers (default: 0)
               --api <url>           URL da API (OpenAI-compatible)

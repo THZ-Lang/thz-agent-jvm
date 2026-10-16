@@ -21,6 +21,7 @@ public final class AgentLoop {
     private final TerminalUI ui;
     private final SessionMemory memory;
     private final String sessaoId;
+    private thz.lang.agent.rag.RagContextService ragService;
 
     private int turnoIdx = 0;
 
@@ -36,12 +37,28 @@ public final class AgentLoop {
         this.sessaoId = sessaoId;
     }
 
+    public void setRagService(thz.lang.agent.rag.RagContextService ragService) {
+        this.ragService = ragService;
+    }
+
+    public thz.lang.agent.rag.RagContextService getRagService() {
+        return ragService;
+    }
+
     /**
      * Executa o loop ReAct para um objetivo do usuário.
      */
     public String executar(String objetivo) {
         context.adicionarMensagem("usuario", objetivo);
         memory.salvarTurno(sessaoId, turnoIdx++, "usuario", objetivo);
+
+        // Recupera contexto semântico dinâmico do workspace via RAG
+        String contextoRag = "";
+        if (ragService != null) {
+            try {
+                contextoRag = ragService.obterContextoRelevante(objetivo, 2, 0.40);
+            } catch (Exception ignored) {}
+        }
 
         for (int i = 0; i < MAX_ITERACOES; i++) {
             // Verificar necessidade de compactação
@@ -50,8 +67,8 @@ public final class AgentLoop {
                 context.compactar();
             }
 
-            // 1. Montar mensagens estruturadas (system, user, assistant)
-            var mensagensChat = context.montarMensagensChat(tools.gerarDescricoes());
+            // 1. Montar mensagens estruturadas (system, user, assistant) com RAG
+            var mensagensChat = context.montarMensagensChat(tools.gerarDescricoes(), contextoRag);
 
             // 2. Chamar LLM com parâmetros calibrados para concisão e fidelidade a THZ-LANG
             String resposta = limparTokensEspeciais(llm.gerarComMensagens(mensagensChat, 768, 0.20f, 40, 0.95f));

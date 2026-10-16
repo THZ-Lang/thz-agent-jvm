@@ -116,10 +116,18 @@ public final class ContextManager {
 
     /** Monta a lista estruturada de mensagens para backends de chat (system, user, assistant) */
     public List<thz.lang.agent.llm.LlmBackend.MensagemChat> montarMensagensChat(String toolsDesc) {
+        return montarMensagensChat(toolsDesc, null);
+    }
+
+    /** Monta a lista estruturada de mensagens incluindo contexto RAG recuperado dinamicamente */
+    public List<thz.lang.agent.llm.LlmBackend.MensagemChat> montarMensagensChat(String toolsDesc, String ragContext) {
         List<thz.lang.agent.llm.LlmBackend.MensagemChat> msgs = new ArrayList<>();
         StringBuilder sys = new StringBuilder(systemPrompt);
         if (!instrucoesProjeto.isBlank()) {
             sys.append("\n\n## Instruções do Projeto:\n").append(instrucoesProjeto);
+        }
+        if (ragContext != null && !ragContext.isBlank()) {
+            sys.append("\n\n").append(ragContext);
         }
         if (toolsDesc != null && !toolsDesc.isBlank()) {
             sys.append("\n\n## Ferramentas Disponíveis:\n").append(toolsDesc);
