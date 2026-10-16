@@ -18,7 +18,7 @@ class AgentConfigTest {
         // Temporarily override home dir isn't feasible, so just test construction
         AgentConfig config = new AgentConfig();
         assertNotNull(config.getModeloPath());
-        assertTrue(config.getModeloPath().contains("qwen2.5-coder-3b-instruct"));
+        assertTrue(config.getModeloPath().contains("qwen2.5-coder-0.5b-instruct"));
         assertEquals(0, config.getGpuLayers());
         assertNull(config.getApiUrl());
         assertNull(config.getApiKey());
@@ -28,9 +28,9 @@ class AgentConfigTest {
     @Test
     @DisplayName("Deve retornar valores default corretos")
     void testValoresDefault() {
-        assertEquals("qwen2.5-coder-3b-instruct-q4_k_m.gguf", AgentConfig.getNomeModeloPadrao());
+        assertEquals("qwen2.5-coder-0.5b-instruct-q4_k_m.gguf", AgentConfig.getNomeModeloPadrao());
         assertTrue(AgentConfig.getUrlDownload().contains("huggingface.co"));
-        assertTrue(AgentConfig.getTamanhoEsperado() > 1_000_000_000L);
+        assertTrue(AgentConfig.getTamanhoEsperado() >= 400_000_000L && AgentConfig.getTamanhoEsperado() <= 600_000_000L);
     }
 
     @Test

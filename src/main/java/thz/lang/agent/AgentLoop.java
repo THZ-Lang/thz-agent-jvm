@@ -50,11 +50,11 @@ public final class AgentLoop {
                 context.compactar();
             }
 
-            // 1. Montar prompt completo
-            String prompt = montarPromptComFerramentas();
+            // 1. Montar mensagens estruturadas (system, user, assistant)
+            var mensagensChat = context.montarMensagensChat(tools.gerarDescricoes());
 
-            // 2. Chamar LLM
-            String resposta = llm.gerar(prompt, 2048, 0.7f, 40, 0.95f);
+            // 2. Chamar LLM com temperatura baixa (0.15f) para fidelidade total a THZ-LANG
+            String resposta = limparTokensEspeciais(llm.gerarComMensagens(mensagensChat, 2048, 0.15f, 40, 0.95f));
 
             // 3. Verificar se é resposta final
             if (contemAnswer(resposta)) {
@@ -152,21 +152,42 @@ public final class AgentLoop {
     }
 
     private ToolCall extrairAction(String resposta) {
-        // Formato: Action: nome(args)
-        Pattern p = Pattern.compile("Action:\\s*(\\w+)\\s*\\(([^)]*)\\)");
-        Matcher m = p.matcher(resposta);
-        if (m.find()) {
-            return new ToolCall(m.group(1), m.group(2));
+        int actionIdx = resposta.indexOf("Action:");
+        if (actionIdx != -1) {
+            String resto = resposta.substring(actionIdx + 7).trim();
+            int openParen = resto.indexOf('(');
+            int newline = resto.indexOf('\n');
+            if (openParen != -1 && (newline == -1 || openParen < newline)) {
+                String nome = resto.substring(0, openParen).trim();
+                int closeParen = resto.lastIndexOf(')');
+                if (closeParen > openParen) {
+                    String args = resto.substring(openParen + 1, closeParen).trim();
+                    return new ToolCall(nome, args);
+                }
+            } else if (newline != -1) {
+                String nome = resto.substring(0, newline).trim();
+                return new ToolCall(nome, "");
+            } else if (!resto.isEmpty()) {
+                return new ToolCall(resto, "");
+            }
         }
 
-        // Fallback: Action: nome
-        p = Pattern.compile("Action:\\s*(\\w+)");
-        m = p.matcher(resposta);
+        // Fallback via regex
+        Pattern p = Pattern.compile("Action:\\s*(\\w+)\\s*\\((.*)\\)", Pattern.DOTALL);
+        Matcher m = p.matcher(resposta);
         if (m.find()) {
-            return new ToolCall(m.group(1), "");
+            return new ToolCall(m.group(1), m.group(2).trim());
         }
 
         return null;
+    }
+
+    private static String limparTokensEspeciais(String s) {
+        if (s == null) return "";
+        return s.replace("<|im_end|>", "")
+                .replace("<|im_start|>", "")
+                .replace("<|endoftext|>", "")
+                .trim();
     }
 
     /** Representa uma chamada de ferramenta extraída da resposta do LLM */

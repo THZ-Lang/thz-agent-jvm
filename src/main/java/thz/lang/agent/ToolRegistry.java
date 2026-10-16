@@ -19,6 +19,7 @@ public final class ToolRegistry {
         registrar(new ExecCommandTool());
         registrar(new SearchFilesTool());
         registrar(new ListFilesTool());
+        registrar(new ThzEvalTool());
     }
 
     public void registrar(Tool tool) {

@@ -71,7 +71,20 @@ public final class ThzAgent {
         // 5. Criar loop do agente
         AgentLoop loop = new AgentLoop(backend, context, tools, approval, ui, memory, sessaoId);
 
-        // 6. REPL do agente
+        // Se invocado com prompt direto via CLI (--prompt ou -p), executa e sai
+        if (argMap.containsKey("prompt")) {
+            String promptDireto = argMap.get("prompt");
+            try {
+                ui.exibirInfo("Executando objetivo: " + promptDireto + "\n");
+                loop.executar(promptDireto);
+            } finally {
+                backend.fechar();
+                memory.fechar();
+            }
+            return;
+        }
+
+        // 6. REPL interativo do agente
         try {
             while (true) {
                 ui.exibirPrompt();
@@ -112,6 +125,17 @@ public final class ThzAgent {
                     boolean on = trimmed.substring(5).trim().toLowerCase().startsWith("on");
                     approval.setModoAutomatico(on);
                     ui.exibirInfo("Auto-approve: " + (on ? "ATIVADO" : "DESATIVADO"));
+                    continue;
+                }
+
+                // Avaliação direta de código THZ-LANG sem passar pelo LLM
+                if (trimmed.startsWith("thz ") || trimmed.startsWith("eval ")) {
+                    String codigoThz = trimmed.substring(trimmed.indexOf(' ') + 1).trim();
+                    ui.exibirInfo("[THZ-LANG] Compilando e executando...");
+                    String res = tools.obter("thz_eval")
+                        .map(t -> t.executar(codigoThz))
+                        .orElse("Ferramenta thz_eval não encontrada.");
+                    ui.exibirInfo(res);
                     continue;
                 }
 
@@ -200,12 +224,13 @@ public final class ThzAgent {
 
     private static void exibirAjuda() {
         System.out.println("""
-            THZ-Agent v%s — Assistente de Código Inteligente
+            THZ-Agent v%s — Assistente e Especialista de Código THZ-LANG
 
             Uso:
               thz agent [opções]
 
             Opções:
+              --prompt, -p <texto>  Executa um objetivo direto via CLI e finaliza
               --modelo <path>       Modelo GGUF local
               --gpu <n>             Nº de GPU layers (default: 0)
               --api <url>           URL da API (OpenAI-compatible)
@@ -215,11 +240,12 @@ public final class ThzAgent {
               --help, -h            Exibe esta ajuda
 
             Exemplos:
-              thz agent --modelo phi-3-mini.Q4_K_M.gguf
-              thz agent --api https://api.openai.com/v1 --api-key sk-...
-              thz agent --modelo llama.gguf --yes
+              thz agent -p "Como declarar uma Minimal API em THZ-LANG moderna?"
+              thz agent --modelo qwen2.5-coder-0.5b-instruct-q4_k_m.gguf
+              thz agent --yes
 
             Comandos no REPL:
+              thz <codigo>          Compila e executa código THZ-LANG imediatamente
               sair                  Encerra a sessão
               limpar                Limpa o histórico
               compactar             Compacta o contexto
@@ -235,11 +261,13 @@ public final class ThzAgent {
             String arg = args[i];
             if (arg.startsWith("--")) {
                 String key = arg.substring(2);
-                if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+                if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
                     map.put(key, args[++i]);
                 } else {
                     map.put(key, "true");
                 }
+            } else if (arg.equals("-p") && i + 1 < args.length) {
+                map.put("prompt", args[++i]);
             } else if (arg.startsWith("-")) {
                 map.put(arg.substring(1), "true");
             }
