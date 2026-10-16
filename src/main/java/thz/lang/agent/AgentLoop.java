@@ -152,18 +152,31 @@ public final class AgentLoop {
     }
 
     private ToolCall extrairAction(String resposta) {
-        // Formato: Action: nome(args)
-        Pattern p = Pattern.compile("Action:\\s*(\\w+)\\s*\\(([^)]*)\\)");
-        Matcher m = p.matcher(resposta);
-        if (m.find()) {
-            return new ToolCall(m.group(1), m.group(2));
+        int actionIdx = resposta.indexOf("Action:");
+        if (actionIdx != -1) {
+            String resto = resposta.substring(actionIdx + 7).trim();
+            int openParen = resto.indexOf('(');
+            int newline = resto.indexOf('\n');
+            if (openParen != -1 && (newline == -1 || openParen < newline)) {
+                String nome = resto.substring(0, openParen).trim();
+                int closeParen = resto.lastIndexOf(')');
+                if (closeParen > openParen) {
+                    String args = resto.substring(openParen + 1, closeParen).trim();
+                    return new ToolCall(nome, args);
+                }
+            } else if (newline != -1) {
+                String nome = resto.substring(0, newline).trim();
+                return new ToolCall(nome, "");
+            } else if (!resto.isEmpty()) {
+                return new ToolCall(resto, "");
+            }
         }
 
-        // Fallback: Action: nome
-        p = Pattern.compile("Action:\\s*(\\w+)");
-        m = p.matcher(resposta);
+        // Fallback via regex
+        Pattern p = Pattern.compile("Action:\\s*(\\w+)\\s*\\((.*)\\)", Pattern.DOTALL);
+        Matcher m = p.matcher(resposta);
         if (m.find()) {
-            return new ToolCall(m.group(1), "");
+            return new ToolCall(m.group(1), m.group(2).trim());
         }
 
         return null;
