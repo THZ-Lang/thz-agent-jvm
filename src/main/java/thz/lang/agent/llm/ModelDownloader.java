@@ -26,13 +26,18 @@ public final class ModelDownloader {
      */
     public static Path baixarSeNecessario(String modeloPath) throws IOException, InterruptedException {
         Path path = Path.of(modeloPath);
-        long tamanhoEsperado = AgentConfig.getTamanhoEsperado();
-        long margemTolerancia = Math.min(1_000_000L, (long) (tamanhoEsperado * 0.02));
+        String nomeArquivo = path.getFileName().toString();
+        long tamanhoEsperado = AgentConfig.getTamanhoEsperado(nomeArquivo);
+        long margemTolerancia = Math.min(2_000_000L, (long) (tamanhoEsperado * 0.03));
 
         // Se arquivo existe e tamanho bate, ok
         if (Files.exists(path)) {
             long tamanho = Files.size(path);
             if (tamanho >= tamanhoEsperado - margemTolerancia) {
+                return path;
+            }
+            // Se for um modelo customizado local (ex: thz-coder-*.gguf), preserva o arquivo existente
+            if (!nomeArquivo.startsWith("qwen2.5-coder-")) {
                 return path;
             }
             // Arquivo incompleto — remover e baixar novamente
@@ -46,13 +51,12 @@ public final class ModelDownloader {
         }
 
         // Baixar
-        String nomeModelo = path.getFileName().toString();
-        System.out.println("[THZ-Agent] Baixando modelo: " + nomeModelo);
+        System.out.println("[THZ-Agent] Baixando modelo: " + nomeArquivo);
         System.out.println("[THZ-Agent] Tamanho: ~" + formatarBytes(tamanhoEsperado));
-        System.out.println("[THZ-Agent] Fonte: HuggingFace (" + AgentConfig.getNomeModeloPadrao() + ")");
+        System.out.println("[THZ-Agent] Fonte: HuggingFace (" + nomeArquivo + ")");
         System.out.println();
 
-        baixarComProgresso(AgentConfig.getUrlDownload(), path, tamanhoEsperado);
+        baixarComProgresso(AgentConfig.getUrlDownload(nomeArquivo), path, tamanhoEsperado);
 
         // Verificar tamanho final
         long tamanhoFinal = Files.size(path);

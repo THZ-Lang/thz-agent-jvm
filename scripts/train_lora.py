@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Pipeline de Fine-Tuning LoRA para o modelo THZ-CODER (0.5B) e conversão para GGUF.
-Base: Qwen/Qwen2.5-Coder-0.5B-Instruct
-Alvo: thz-coder-0.5b-q4_k_m.gguf para execução local ultra-rápida em CPU.
+Pipeline de Fine-Tuning LoRA para a família de modelos THZ-CODER (1.5B e 3B) e conversão para GGUF.
+Modelos Base:
+  - 1.5B: Qwen/Qwen2.5-Coder-1.5B-Instruct  (Ponto de entrada ideal para CPU)
+  - 3B:   Qwen/Qwen2.5-Coder-3B-Instruct    (Sweet spot de máxima capacidade e raciocínio em CPU/Desktop)
 
 Uso:
-  python train_lora.py --dataset ../build/datasets/thz_instruct_train.jsonl
+  python train_lora.py --size 1.5b --dataset ../build/datasets/thz_instruct_train.jsonl
+  python train_lora.py --size 3b   --dataset ../build/datasets/thz_instruct_train.jsonl
 """
 
 import os
@@ -13,20 +15,37 @@ import sys
 import argparse
 from pathlib import Path
 
+MODELOS_BASE = {
+    "1.5b": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+    "3b":   "Qwen/Qwen2.5-Coder-3B-Instruct",
+    "0.5b": "Qwen/Qwen2.5-Coder-0.5B-Instruct"
+}
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Treinamento LoRA para THZ-CODER-0.5B")
+    parser = argparse.ArgumentParser(description="Treinamento LoRA para THZ-CODER (1.5B e 3B)")
+    parser.add_argument("--size", type=str, choices=["1.5b", "3b", "0.5b"], default="1.5b",
+                        help="Tamanho do modelo base Qwen-Coder (padrão: 1.5b, recomendado: 3b)")
     parser.add_argument("--dataset", type=str, default="../build/datasets/thz_instruct_train.jsonl",
                         help="Caminho para o dataset de treino em formato JSONL ChatML")
-    parser.add_argument("--base_model", type=str, default="Qwen/Qwen2.5-Coder-0.5B-Instruct",
-                        help="Modelo base no HuggingFace ou diretório local")
-    parser.add_argument("--output_dir", type=str, default="../build/lora_adapter",
+    parser.add_argument("--base_model", type=str, default=None,
+                        help="Sobrescreve o modelo base do HuggingFace ou caminho local")
+    parser.add_argument("--output_dir", type=str, default=None,
                         help="Diretório de saída para salvar o adaptador LoRA")
-    parser.add_argument("--merged_dir", type=str, default="../build/thz_coder_merged",
+    parser.add_argument("--merged_dir", type=str, default=None,
                         help="Diretório para salvar o modelo consolidado antes de exportar para GGUF")
     parser.add_argument("--epochs", type=int, default=3, help="Número de épocas de treino")
     parser.add_argument("--lr", type=float, default=2e-4, help="Learning rate")
     parser.add_argument("--dry_run", action="store_true", help="Valida dados e dependências sem executar o treino completo")
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.base_model is None:
+        args.base_model = MODELOS_BASE[args.size]
+    if args.output_dir is None:
+        args.output_dir = f"../build/lora_adapter_{args.size}"
+    if args.merged_dir is None:
+        args.merged_dir = f"../build/thz_coder_{args.size}_merged"
+
+    return args
 
 def verificar_dependencias():
     try:
@@ -51,10 +70,11 @@ def verificar_dependencias():
 def main():
     args = parse_args()
     print("=" * 60)
-    print("  THZ-CODER: Treinamento LoRA e Export GGUF")
+    print(f"  THZ-CODER ({args.size.upper()}): Treinamento LoRA e Export GGUF")
     print("=" * 60)
-    print(f"Dataset:    {args.dataset}")
+    print(f"Tamanho:    {args.size}")
     print(f"Base Model: {args.base_model}")
+    print(f"Dataset:    {args.dataset}")
     print(f"Saída LoRA: {args.output_dir}")
     print(f"Merged:     {args.merged_dir}")
     print("=" * 60)
@@ -153,9 +173,9 @@ def main():
     print("  TREINAMENTO CONCLUÍDO COM SUCESSO!")
     print("=" * 60)
     print("Para converter o modelo consolidado para GGUF para uso no THZ-Agent:")
-    print(f"  python llama.cpp/convert_hf_to_gguf.py {args.merged_dir} --outfile thz-coder-0.5b-f16.gguf")
-    print("  llama-quantize thz-coder-0.5b-f16.gguf thz-coder-0.5b-q4_k_m.gguf Q4_K_M")
-    print("  copy thz-coder-0.5b-q4_k_m.gguf %USERPROFILE%\\.thz\\models\\thz-coder-0.5b-q4_k_m.gguf")
+    print(f"  python llama.cpp/convert_hf_to_gguf.py {args.merged_dir} --outfile thz-coder-{args.size}-f16.gguf")
+    print(f"  llama-quantize thz-coder-{args.size}-f16.gguf thz-coder-{args.size}-q4_k_m.gguf Q4_K_M")
+    print(f"  copy thz-coder-{args.size}-q4_k_m.gguf %USERPROFILE%\\.thz\\models\\thz-coder-{args.size}-q4_k_m.gguf")
     print("=" * 60)
 
 if __name__ == "__main__":

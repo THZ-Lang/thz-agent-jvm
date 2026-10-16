@@ -22,11 +22,11 @@ class ModelDownloaderTest {
     }
 
     @Test
-    @DisplayName("Deve ter tamanho esperado entre 300MB e 1GB para modelo leve de CPU")
+    @DisplayName("Deve ter tamanho esperado entre 300MB e 1.2GB para modelo leve de CPU")
     void testTamanhoEsperado() {
         long tamanho = AgentConfig.getTamanhoEsperado();
         assertTrue(tamanho >= 300_000_000L, "Modelo deve ter pelo menos 300MB");
-        assertTrue(tamanho <= 1_000_000_000L, "Modelo deve ter no máximo 1GB para execução ágil em CPU");
+        assertTrue(tamanho <= 1_200_000_000L, "Modelo deve ter no máximo ~1.2GB para execução ágil em CPU");
     }
 
     @Test

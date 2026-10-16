@@ -1,4 +1,4 @@
-# ADR-001: Estratégia Híbrida de Conhecimento — RAG Dinâmico e LoRA Fine-Tuning para o Modelo THZ-CODER-0.5B
+# ADR-001: Estratégia Híbrida de Conhecimento — RAG Dinâmico e LoRA Fine-Tuning para a Família THZ-CODER (1.5B & 3B)
 
 **Status:** Aprovado  
 **Data:** 16/10/2026  
@@ -11,61 +11,54 @@
 
 O **THZ-Agent** foi projetado para ser um assistente de código autônomo, especialista na linguagem THZ-LANG, capaz de operar 100% local em CPUs modestas sem depender de serviços externos (Ollama, APIs comerciais ou GPUs dedicadas).
 
-Para atingir esse objetivo com um modelo ultracompacto (~0.5 bilhão de parâmetros, `qwen2.5-coder-0.5b-instruct-q4_k_m.gguf`), enfrentamos dois desafios essenciais:
-1. **Gramática e Sintaxe Inédita:** O modelo base foi treinado primariamente em linguagens tradicionais (Python, C, Java, Rust) e não possui a representação estatística nativa da sintaxe moderna (Top-Level Statements estilo .NET 10, inferência `val`/`var`, `enquanto`, `para i de 1 ate 10`, TUI) e da sintaxe foundational/COBOL da THZ-LANG.
-2. **Capacidade de Contexto Reduzida (SLM):** Modelos de 0.5B possuem menor capacidade de reter instruções longas inseridas exclusivamente via System Prompt, tendendo à alucinação de outras linguagens ou regurgitação de cabeçalhos caso o prompt fique sobrecarregado.
+Durante a fase de validação experimental com modelos de 0.5B, identificamos que:
+1. **0.5B é o limite inferior da viabilidade de LLMs:** Útil para tarefas estreitas como classificação de intenção e autocomplete mono-linha, mas insuficiente para sustentar raciocínios encadeados multi-passo (ReAct com chamadas de ferramentas e observação).
+2. **Dimensionamento de Parâmetros Ideal:** Modelos na faixa de **1.5B** constituem o piso mínimo viável para seguir formatos estruturados sem degeneração, enquanto modelos de **3B** representam o *sweet spot* absoluto entre consumo de memória CPU (~2.5 GB) e capacidade analítica de código.
 
-Precisamos de uma solução arquitetural definitiva para capacitar o modelo tanto em **fatos dinâmicos do projeto** quanto em **gramática nativa fluente**.
+Adotamos a base **Qwen2.5-Coder**, atualmente líder incontestável de mercado na faixa de modelos abertos leves para código.
 
 ---
 
-## 2. Decisão Arquitetural: A Estratégia Híbrida (RAG + LoRA)
+## 2. Decisão Arquitetural: Matriz de Modelos e Estratégia Híbrida
 
-Adotamos a separação de responsabilidades em duas camadas complementares:
+A arquitetura adota a separação de responsabilidades em duas camadas (RAG + LoRA) distribuída em dois perfis de modelo:
 
-### Camada 1: RAG Dinâmico Local (Para Fatos, Documentação e Código do Workspace)
+### Perfis de Modelo Suportados (Base: Qwen2.5-Coder)
+| Perfil | Modelo Base HF | Modelo Final GGUF | Consumo RAM | Velocidade CPU | Caso de Uso |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| **Padrão (1.5B)** | `Qwen/Qwen2.5-Coder-1.5B-Instruct` | `thz-coder-1.5b-q4_k_m.gguf` | ~1.3 GB | ~25 - 40 tok/s | Padrão do agente em qualquer CPU. Rápido, estável e livre de loops autoregressivos. |
+| **Avançado (3B)** | `Qwen/Qwen2.5-Coder-3B-Instruct` | `thz-coder-3b-q4_k_m.gguf` | ~2.5 GB | ~15 - 25 tok/s | Desenvolvimento avançado, modernização de sistemas COBOL completos, TUI e refatorações complexas. |
+
+### Camada 1: RAG Dinâmico Local (Fatos, Documentação e Código do Workspace)
 - **Papel:** Ingestão contínua de arquivos `.thz`, `THZ.md`, configurações e documentação viva do projeto.
 - **Mecanismo:** Indexação vetorial semântica leve em CPU (`ProjectIndexer` + `ThzIaEngine` de 128 dimensões).
-- **Vantagem:** Atualização instantânea sem necessidade de reprocessar pesos toda vez que o código ou as regras do projeto mudam.
-- **Funcionamento:** Antes de gerar uma resposta ou raciocinar sobre ferramentas, o `RagContextService` recupera os trechos mais relevantes do repositório e injeta no contexto.
+- **Funcionamento:** Antes de gerar respostas ou invocar ferramentas, o `RagContextService` recupera os trechos mais relevantes do repositório e injeta no contexto.
 
-### Camada 2: LoRA Fine-Tuning (Para Gramática, Vocabulário e Sintaxe Nativa)
-- **Papel:** Modificar as matrizes de atenção do modelo para que a sintaxe THZ-LANG seja a sua "língua materna", gerando blocos ````thz```` espontaneamente com taxa zero de alucinação para C#/Python.
-- **Mecanismo:** Fine-Tuning com adaptadores de baixo rank (LoRA / QLoRA) sobre o modelo base `Qwen2.5-Coder-0.5B-Instruct`.
-- **Dataset Ground Truth:** Geração programática de 1.000 a 3.000 pares de instrução e código validados pelo próprio `ThzCompilerDriver` (garantia de 100% de correção sintática).
-- **Resultado Final:** O adapter treinado é fundido (*merged*) aos pesos originais e convertido em um artefato `.gguf` quantizado em Q4_K_M: **`thz-coder-0.5b-q4_k_m.gguf`**.
+### Camada 2: LoRA Fine-Tuning (Gramática, Vocabulário e Sintaxe Nativa)
+- **Papel:** Adaptar as matrizes de atenção da base Qwen2.5-Coder para a sintaxe nativa THZ-LANG (Top-Level Statements e Foundational COBOL).
+- **Dataset Ground Truth:** Geração programática via `ThzDatasetGenerator.java`, validada sintaticamente pelo `ThzCompilerDriver`.
+- **Resultado Final:** Adaptador fundido e exportado para GGUF `Q4_K_M` (`thz-coder-1.5b-q4_k_m.gguf` e `thz-coder-3b-q4_k_m.gguf`).
 
 ---
 
 ## 3. Especificação do Pipeline LoRA
 
-1. **Dataset Sintético e Ground Truth (`ThzDatasetGenerator.java`):**
-   - Pares no padrão ChatML (`system`, `user`, `assistant`).
-   - Categorias cobertas:
-     - Declaração de variáveis (`val` imutável, `var` mutável, tipagem explícita `Monetario`, `Inteiro`, `Texto`).
-     - Estruturas de repetição modernas (`enquanto`, `para ... ate`, `para ... passo`).
-     - Estruturas Foundational Corporativas (`PROGRAMA`, `PROCEDIMENTO`, `VARIAVEL`, `EXIBA`, `SOMAR A`).
-     - Compatibilidade COBOL (`SCREEN SECTION`, cores ANSI, transições bancárias).
-     - Contratos e DDD (`EXIGE`, `GARANTE`, `INVARIANTE`).
-     - Dashboards TUI (`TUI.janela`, `TUI.progresso`, `TUI.tabela`).
-     - Minimal APIs (`servidor`, `rota`, `responder`).
-2. **Hiperparâmetros de Treinamento:**
-   - **Base:** `Qwen/Qwen2.5-Coder-0.5B-Instruct`
+1. **Hiperparâmetros de Treinamento:**
    - **LoRA Rank ($r$):** 16
    - **LoRA Alpha ($\alpha$):** 32
    - **Módulos Alvo:** `["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]`
    - **Otimizador:** AdamW 8-bit / paged_adamw_8bit
    - **Learning Rate:** $2 \times 10^{-4}$ com warmup linear e cosine decay
    - **Épocas:** 3
-3. **Conversão e Distribuição:**
+2. **Conversão e Distribuição:**
    - Exportação para GGUF via `llama.cpp/convert_hf_to_gguf.py`.
    - Quantização final `q4_k_m`.
-   - Disponibilização no HuggingFace oficial do ecossistema e suporte nativo no `ModelDownloader.java`.
+   - Suporte nativo e catálogo em `AgentConfig.java` e `ModelDownloader.java`.
 
 ---
 
 ## 4. Consequências e Benefícios
 
-- **Precisão Factual e Sintática:** O modelo não confunde mais sintaxes de linguagens terceiras, pois o vocabulário THZ-LANG se torna intrínseco aos pesos.
-- **Economia de Contexto:** Redução de até 70% do tamanho do System Prompt, pois a sintaxe não precisa mais ser explicada exaustivamente via prompt injection.
-- **Portabilidade Total:** O modelo final continua pesando ~400 MB e roda em milissegundos em CPU pura no Windows, Linux e macOS.
+- **Raciocínio Sólido e Fluido:** A transição para a base de 1.5B/3B elimina as degenerações de repetição comuns em 0.5B e garante aderência estrita ao ciclo ReAct.
+- **Totalmente Local e Autônomo:** Permanece 100% independente de Ollama ou APIs na nuvem, com o `llama-server` nativo gerenciado pelo próprio agente.
+- **Flexibilidade de Hardware:** Máquinas modestas utilizam o perfil 1.5B (~1.3 GB RAM); estações de trabalho de desenvolvedores utilizam o perfil 3B (~2.5 GB RAM).

@@ -188,10 +188,33 @@ public final class ThzAgent {
             return new ApiLlmBackend(url, key, modelo);
         }
 
+        // Backend local — seleção por tamanho (--size 1.5b | --size 3b)
+        if (argMap.containsKey("size") || argMap.containsKey("s")) {
+            String sizeArg = argMap.getOrDefault("size", argMap.get("s"));
+            var perfil = AgentConfig.PerfilModelo.resolver(sizeArg);
+            int gpu = Integer.parseInt(argMap.getOrDefault("gpu", "0"));
+            String path = AgentConfig.getModelsDir().resolve(perfil.getNomeArquivo()).toString();
+            ui.exibirInfo(String.format("Modelo selecionado (%s): %s", perfil.getAlias().toUpperCase(), perfil.getNomeArquivo()));
+            try {
+                path = ModelDownloader.baixarSeNecessario(path).toString();
+            } catch (Exception e) {
+                throw new RuntimeException("Falha ao preparar modelo (" + perfil.getAlias() + "): " + e.getMessage(), e);
+            }
+            return new LocalLlmBackend(path, gpu);
+        }
+
         // Backend local — modelo explícito via CLI
         if (argMap.containsKey("modelo")) {
             int gpu = Integer.parseInt(argMap.getOrDefault("gpu", "0"));
-            String path = argMap.get("modelo");
+            String modeloArg = argMap.get("modelo");
+            String path;
+            if (modeloArg.equalsIgnoreCase("1.5b") || modeloArg.equalsIgnoreCase("3b") || modeloArg.equalsIgnoreCase("0.5b")) {
+                var perfil = AgentConfig.PerfilModelo.resolver(modeloArg);
+                path = AgentConfig.getModelsDir().resolve(perfil.getNomeArquivo()).toString();
+            } else {
+                path = modeloArg;
+            }
+
             try {
                 path = ModelDownloader.baixarSeNecessario(path).toString();
             } catch (Exception e) {
@@ -200,7 +223,7 @@ public final class ThzAgent {
             return new LocalLlmBackend(path, gpu);
         }
 
-        // Default: carregar config e auto-baixar modelo padrão
+        // Default: carregar config e auto-baixar modelo padrão (1.5B)
         AgentConfig config = AgentConfig.ler();
         int gpu = Integer.parseInt(argMap.getOrDefault("gpu",
             String.valueOf(config.getGpuLayers())));
@@ -268,8 +291,9 @@ public final class ThzAgent {
 
             Opções:
               --prompt, -p <texto>  Executa um objetivo direto via CLI e finaliza
+              --size, -s <1.5b|3b>  Seleciona modelo Qwen-Coder (1.5B padrão CPU, 3B avançado)
               --export-dataset <arq> Exporta dataset ChatML para Fine-Tuning LoRA
-              --modelo <path>       Modelo GGUF local
+              --modelo <path>       Modelo GGUF local ou alias (1.5b, 3b, 0.5b)
               --gpu <n>             Nº de GPU layers (default: 0)
               --api <url>           URL da API (OpenAI-compatible)
               --api-key <key>       Chave da API
@@ -279,7 +303,8 @@ public final class ThzAgent {
 
             Exemplos:
               thz agent -p "Como declarar uma Minimal API em THZ-LANG moderna?"
-              thz agent --modelo qwen2.5-coder-0.5b-instruct-q4_k_m.gguf
+              thz agent --size 1.5b
+              thz agent --size 3b -p "Modernizar programa COBOL com SCREEN SECTION"
               thz agent --yes
 
             Comandos no REPL:

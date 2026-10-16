@@ -15,10 +15,9 @@ class AgentConfigTest {
     @Test
     @DisplayName("Deve criar config com defaults quando não existe arquivo")
     void testCriarConfigDefault() {
-        // Temporarily override home dir isn't feasible, so just test construction
         AgentConfig config = new AgentConfig();
         assertNotNull(config.getModeloPath());
-        assertTrue(config.getModeloPath().contains("qwen2.5-coder-0.5b-instruct"));
+        assertTrue(config.getModeloPath().contains("qwen2.5-coder-1.5b-instruct"));
         assertEquals(0, config.getGpuLayers());
         assertNull(config.getApiUrl());
         assertNull(config.getApiKey());
@@ -26,11 +25,16 @@ class AgentConfigTest {
     }
 
     @Test
-    @DisplayName("Deve retornar valores default corretos")
+    @DisplayName("Deve retornar valores default corretos para 1.5B e catálogo 3B")
     void testValoresDefault() {
-        assertEquals("qwen2.5-coder-0.5b-instruct-q4_k_m.gguf", AgentConfig.getNomeModeloPadrao());
+        assertEquals("qwen2.5-coder-1.5b-instruct-q4_k_m.gguf", AgentConfig.getNomeModeloPadrao());
         assertTrue(AgentConfig.getUrlDownload().contains("huggingface.co"));
-        assertTrue(AgentConfig.getTamanhoEsperado() >= 400_000_000L && AgentConfig.getTamanhoEsperado() <= 600_000_000L);
+        assertTrue(AgentConfig.getTamanhoEsperado() >= 800_000_000L && AgentConfig.getTamanhoEsperado() <= 1_200_000_000L);
+
+        // Catálogo 3B
+        var perfil3b = AgentConfig.PerfilModelo.resolver("3b");
+        assertEquals("qwen2.5-coder-3b-instruct-q4_k_m.gguf", perfil3b.getNomeArquivo());
+        assertTrue(perfil3b.getTamanhoBytes() >= 1_800_000_000L);
     }
 
     @Test
