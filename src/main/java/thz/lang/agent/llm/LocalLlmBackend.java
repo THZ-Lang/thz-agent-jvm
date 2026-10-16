@@ -29,12 +29,7 @@ public final class LocalLlmBackend implements LlmBackend {
             .build();
 
         if (!nativoDisponivel) {
-            if (LlamaServerManager.disponivel()) {
-                this.serverManager = new LlamaServerManager(modeloPath);
-            } else {
-                System.err.println("[THZ-LLM] Aviso: llama-server.exe não encontrado. " +
-                    "Modo stub ativado.");
-            }
+            this.serverManager = new LlamaServerManager(modeloPath);
         }
     }
 
@@ -51,7 +46,7 @@ public final class LocalLlmBackend implements LlmBackend {
     public String nome() {
         String nome = Path.of(modeloPath)
             .getFileName().toString().replaceAll("\\.[^.]+$", "");
-        String modo = nativoDisponivel ? "FFI" : (serverManager != null ? "HTTP" : "stub");
+        String modo = nativoDisponivel ? "FFI" : (serverManager != null ? "HTTP-CPU" : "indisponível");
         return "llama.cpp (" + modo + ") [" + nome + "]";
     }
 
@@ -62,30 +57,28 @@ public final class LocalLlmBackend implements LlmBackend {
             return gerarViaFfi(prompt, maxTokens, temperature, topK, topP);
         }
 
-        // 2. Tentar HTTP (llama-server)
+        // 2. Tentar HTTP (llama-server orquestrado pelo próprio agente)
         if (serverManager != null) {
             try {
-                serverManager.iniciar();
+                serverManager.assegurarPronto();
                 // Retry até o modelo carregar (503 = model loading)
                 for (int tentativa = 0; tentativa < 30; tentativa++) {
                     try {
                         return gerarViaHttp(prompt, maxTokens, temperature, topK, topP);
                     } catch (IOException e) {
                         if (e.getMessage() != null && e.getMessage().contains("503")) {
-                            Thread.sleep(2000); // aguardar modelo carregar
+                            Thread.sleep(1500); // aguardar modelo carregar
                             continue;
                         }
                         throw e;
                     }
                 }
             } catch (Exception e) {
-                System.err.println("[THZ-LLM] Erro ao conectar com llama-server: " + e.getMessage());
+                throw new RuntimeException("Falha ao executar modelo local via llama-server: " + e.getMessage(), e);
             }
         }
 
-        // 3. Fallback: stub
-        return "Answer: O backend local não está disponível. " +
-            "Configure --api para usar uma API remota.";
+        throw new IllegalStateException("Nenhum backend LLM local disponível.");
     }
 
     private String gerarViaFfi(String prompt, int maxTokens, float temperature, int topK, float topP) {

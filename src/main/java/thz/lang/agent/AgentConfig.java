@@ -14,10 +14,10 @@ public final class AgentConfig {
     private static final Path CONFIG_FILE = CONFIG_DIR.resolve("agent.json");
     private static final Path MODELS_DIR = CONFIG_DIR.resolve("models");
 
-    private static final String MODELO_PADRAO = "qwen2.5-coder-3b-instruct-q4_k_m.gguf";
+    private static final String MODELO_PADRAO = "qwen2.5-coder-0.5b-instruct-q4_k_m.gguf";
     private static final String HUGGINGFACE_URL =
-        "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/" + MODELO_PADRAO;
-    private static final long TAMANHO_ESPERADO = 2_104_932_800L;
+        "https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/" + MODELO_PADRAO;
+    private static final long TAMANHO_ESPERADO = 491_400_064L;
 
     private String modeloPath;
     private int gpuLayers;

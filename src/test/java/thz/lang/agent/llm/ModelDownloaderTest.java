@@ -22,25 +22,22 @@ class ModelDownloaderTest {
     }
 
     @Test
-    @DisplayName("Deve ter tamanho esperado > 1GB")
+    @DisplayName("Deve ter tamanho esperado entre 300MB e 1GB para modelo leve de CPU")
     void testTamanhoEsperado() {
         long tamanho = AgentConfig.getTamanhoEsperado();
-        assertTrue(tamanho > 1_000_000_000L, "Modelo deve ter pelo menos 1GB");
-        assertTrue(tamanho < 5_000_000_000L, "Modelo deve ter menos de 5GB");
+        assertTrue(tamanho >= 300_000_000L, "Modelo deve ter pelo menos 300MB");
+        assertTrue(tamanho <= 1_000_000_000L, "Modelo deve ter no máximo 1GB para execução ágil em CPU");
     }
 
     @Test
     @DisplayName("Deve detectar modelo existente como completo")
     void testModeloExistente(@TempDir Path tempDir) throws Exception {
-        Path modelo = tempDir.resolve("qwen2.5-coder-3b-instruct-q4_k_m.gguf");
+        Path modelo = tempDir.resolve("qwen2.5-coder-0.5b-instruct-q4_k_m.gguf");
 
         // Criar arquivo com tamanho >= esperado
         byte[] dados = new byte[100]; // Simular arquivo existente
         Files.write(modelo, dados);
 
-        // NOTE: baixarSeNecessario verifica tamanho real (2GB), então
-        // este teste só valida que o método não baixa se o arquivo for grande o suficiente
-        // Para teste real, precisaríamos de um servidor mock
         assertTrue(Files.exists(modelo));
     }
 
