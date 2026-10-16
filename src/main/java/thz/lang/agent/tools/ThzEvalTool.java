@@ -131,6 +131,11 @@ public final class ThzEvalTool implements Tool {
             }
         }
 
+        // Se veio no formato codigo=...
+        if (trimmed.startsWith("codigo=")) {
+            trimmed = trimmed.substring(7).trim();
+        }
+
         // Se veio com aspas simples ou duplas ao redor
         if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
             return trimmed.substring(1, trimmed.length() - 1)
