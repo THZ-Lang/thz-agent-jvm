@@ -21,13 +21,14 @@ class ToolRegistryTest {
     @Test
     @DisplayName("Deve registrar todas as ferramentas padrão")
     void testFerramentasPadrao() {
-        assertEquals(6, registry.todas().size());
+        assertEquals(7, registry.todas().size());
         assertTrue(registry.obter("read_file").isPresent());
         assertTrue(registry.obter("write_file").isPresent());
         assertTrue(registry.obter("apply_diff").isPresent());
         assertTrue(registry.obter("execute_command").isPresent());
         assertTrue(registry.obter("search_files").isPresent());
         assertTrue(registry.obter("list_files").isPresent());
+        assertTrue(registry.obter("thz_eval").isPresent());
     }
 
     @Test
@@ -50,7 +51,7 @@ class ToolRegistryTest {
 
         registry.registrar(custom);
         assertTrue(registry.obter("custom_tool").isPresent());
-        assertEquals(7, registry.todas().size());
+        assertEquals(8, registry.todas().size());
     }
 
     @Test

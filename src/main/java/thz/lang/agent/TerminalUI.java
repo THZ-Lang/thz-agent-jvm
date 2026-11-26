@@ -65,6 +65,10 @@ public final class TerminalUI {
         output.println(RED + "  Erro: " + msg + RESET);
     }
 
+    public void exibirSucesso(String msg) {
+        output.println(GREEN + "  " + msg + RESET);
+    }
+
     public void exibirInfo(String msg) {
         output.println(BLUE + "  " + msg + RESET);
     }

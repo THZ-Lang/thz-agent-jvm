@@ -31,6 +31,20 @@ public final class ThzAgent {
             return;
         }
 
+        // Modo export-dataset
+        if (argMap.containsKey("export-dataset") || (args.length > 0 && "export-dataset".equalsIgnoreCase(args[0]))) {
+            String destino = argMap.getOrDefault("export-dataset", "build/datasets/thz_instruct_train.jsonl");
+            if (destino.isBlank() || "true".equalsIgnoreCase(destino)) {
+                if (args.length > 1 && !args[1].startsWith("-")) {
+                    destino = args[1];
+                } else {
+                    destino = "build/datasets/thz_instruct_train.jsonl";
+                }
+            }
+            exportarDataset(destino, ui);
+            return;
+        }
+
         // Modo --sessoes
         if (argMap.containsKey("sessoes")) {
             listarSessoes();
@@ -68,10 +82,31 @@ public final class ThzAgent {
         String dir = Paths.get("").toAbsolutePath().toString();
         memory.criarSessao(sessaoId, modelo, dir);
 
-        // 5. Criar loop do agente
-        AgentLoop loop = new AgentLoop(backend, context, tools, approval, ui, memory, sessaoId);
+        // 5. Inicializar RAG semântico do workspace
+        thz.lang.agent.rag.RagContextService rag = new thz.lang.agent.rag.RagContextService(dir);
+        rag.garantirIndexacao();
+        if (rag.isIndexado() && rag.getTotalArquivosIndexados() > 0) {
+            ui.exibirInfo("RAG: " + rag.getTotalArquivosIndexados() + " arquivos semânticos indexados no workspace.");
+        }
 
-        // 6. REPL do agente
+        // 6. Criar loop do agente
+        AgentLoop loop = new AgentLoop(backend, context, tools, approval, ui, memory, sessaoId);
+        loop.setRagService(rag);
+
+        // Se invocado com prompt direto via CLI (--prompt ou -p), executa e sai
+        if (argMap.containsKey("prompt")) {
+            String promptDireto = argMap.get("prompt");
+            try {
+                ui.exibirInfo("Executando objetivo: " + promptDireto + "\n");
+                loop.executar(promptDireto);
+            } finally {
+                backend.fechar();
+                memory.fechar();
+            }
+            return;
+        }
+
+        // 6. REPL interativo do agente
         try {
             while (true) {
                 ui.exibirPrompt();
@@ -115,6 +150,17 @@ public final class ThzAgent {
                     continue;
                 }
 
+                // Avaliação direta de código THZ-LANG sem passar pelo LLM
+                if (trimmed.startsWith("thz ") || trimmed.startsWith("eval ")) {
+                    String codigoThz = trimmed.substring(trimmed.indexOf(' ') + 1).trim();
+                    ui.exibirInfo("[THZ-LANG] Compilando e executando...");
+                    String res = tools.obter("thz_eval")
+                        .map(t -> t.executar(codigoThz))
+                        .orElse("Ferramenta thz_eval não encontrada.");
+                    ui.exibirInfo(res);
+                    continue;
+                }
+
                 if (trimmed.isEmpty()) continue;
 
                 // Executar loop do agente
@@ -142,10 +188,33 @@ public final class ThzAgent {
             return new ApiLlmBackend(url, key, modelo);
         }
 
+        // Backend local — seleção por tamanho (--size 1.5b | --size 3b)
+        if (argMap.containsKey("size") || argMap.containsKey("s")) {
+            String sizeArg = argMap.getOrDefault("size", argMap.get("s"));
+            var perfil = AgentConfig.PerfilModelo.resolver(sizeArg);
+            int gpu = Integer.parseInt(argMap.getOrDefault("gpu", "0"));
+            String path = AgentConfig.getModelsDir().resolve(perfil.getNomeArquivo()).toString();
+            ui.exibirInfo(String.format("Modelo selecionado (%s): %s", perfil.getAlias().toUpperCase(), perfil.getNomeArquivo()));
+            try {
+                path = ModelDownloader.baixarSeNecessario(path).toString();
+            } catch (Exception e) {
+                throw new RuntimeException("Falha ao preparar modelo (" + perfil.getAlias() + "): " + e.getMessage(), e);
+            }
+            return new LocalLlmBackend(path, gpu);
+        }
+
         // Backend local — modelo explícito via CLI
         if (argMap.containsKey("modelo")) {
             int gpu = Integer.parseInt(argMap.getOrDefault("gpu", "0"));
-            String path = argMap.get("modelo");
+            String modeloArg = argMap.get("modelo");
+            String path;
+            if (modeloArg.equalsIgnoreCase("1.5b") || modeloArg.equalsIgnoreCase("3b") || modeloArg.equalsIgnoreCase("0.5b")) {
+                var perfil = AgentConfig.PerfilModelo.resolver(modeloArg);
+                path = AgentConfig.getModelsDir().resolve(perfil.getNomeArquivo()).toString();
+            } else {
+                path = modeloArg;
+            }
+
             try {
                 path = ModelDownloader.baixarSeNecessario(path).toString();
             } catch (Exception e) {
@@ -154,7 +223,7 @@ public final class ThzAgent {
             return new LocalLlmBackend(path, gpu);
         }
 
-        // Default: carregar config e auto-baixar modelo padrão
+        // Default: carregar config e auto-baixar modelo padrão (1.5B)
         AgentConfig config = AgentConfig.ler();
         int gpu = Integer.parseInt(argMap.getOrDefault("gpu",
             String.valueOf(config.getGpuLayers())));
@@ -198,15 +267,33 @@ public final class ThzAgent {
         memory.fechar();
     }
 
+    private static void exportarDataset(String caminho, TerminalUI ui) {
+        try {
+            Path destino = Paths.get(caminho).toAbsolutePath();
+            ui.exibirInfo("[THZ-Agent] Gerando dataset de instrução para Fine-Tuning LoRA...");
+            var exemplos = thz.lang.agent.training.ThzDatasetGenerator.gerarExemplosPadrao();
+            int total = thz.lang.agent.training.ThzDatasetGenerator.exportarJsonl(exemplos, destino);
+            ui.exibirSucesso(String.format("Dataset gerado com sucesso: %d exemplos em %s", total, destino));
+            ui.exibirInfo("Para iniciar o treinamento LoRA:");
+            ui.exibirInfo("  python scripts/train_lora.py --dataset " + destino);
+        } catch (Exception e) {
+            ui.exibirErro("Falha ao exportar dataset: " + e.getMessage());
+        }
+    }
+
     private static void exibirAjuda() {
         System.out.println("""
-            THZ-Agent v%s — Assistente de Código Inteligente
+            THZ-Agent v%s — Assistente e Especialista de Código THZ-LANG
 
             Uso:
               thz agent [opções]
+              thz agent export-dataset [caminho]
 
             Opções:
-              --modelo <path>       Modelo GGUF local
+              --prompt, -p <texto>  Executa um objetivo direto via CLI e finaliza
+              --size, -s <1.5b|3b>  Seleciona modelo Qwen-Coder (1.5B padrão CPU, 3B avançado)
+              --export-dataset <arq> Exporta dataset ChatML para Fine-Tuning LoRA
+              --modelo <path>       Modelo GGUF local ou alias (1.5b, 3b, 0.5b)
               --gpu <n>             Nº de GPU layers (default: 0)
               --api <url>           URL da API (OpenAI-compatible)
               --api-key <key>       Chave da API
@@ -215,11 +302,13 @@ public final class ThzAgent {
               --help, -h            Exibe esta ajuda
 
             Exemplos:
-              thz agent --modelo phi-3-mini.Q4_K_M.gguf
-              thz agent --api https://api.openai.com/v1 --api-key sk-...
-              thz agent --modelo llama.gguf --yes
+              thz agent -p "Como declarar uma Minimal API em THZ-LANG moderna?"
+              thz agent --size 1.5b
+              thz agent --size 3b -p "Modernizar programa COBOL com SCREEN SECTION"
+              thz agent --yes
 
             Comandos no REPL:
+              thz <codigo>          Compila e executa código THZ-LANG imediatamente
               sair                  Encerra a sessão
               limpar                Limpa o histórico
               compactar             Compacta o contexto
@@ -235,11 +324,13 @@ public final class ThzAgent {
             String arg = args[i];
             if (arg.startsWith("--")) {
                 String key = arg.substring(2);
-                if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+                if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
                     map.put(key, args[++i]);
                 } else {
                     map.put(key, "true");
                 }
+            } else if (arg.equals("-p") && i + 1 < args.length) {
+                map.put("prompt", args[++i]);
             } else if (arg.startsWith("-")) {
                 map.put(arg.substring(1), "true");
             }

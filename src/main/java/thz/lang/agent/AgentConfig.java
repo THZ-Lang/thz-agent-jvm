@@ -14,10 +14,56 @@ public final class AgentConfig {
     private static final Path CONFIG_FILE = CONFIG_DIR.resolve("agent.json");
     private static final Path MODELS_DIR = CONFIG_DIR.resolve("models");
 
-    private static final String MODELO_PADRAO = "qwen2.5-coder-3b-instruct-q4_k_m.gguf";
-    private static final String HUGGINGFACE_URL =
-        "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/" + MODELO_PADRAO;
-    private static final long TAMANHO_ESPERADO = 2_104_932_800L;
+    public enum PerfilModelo {
+        QWEN_1_5B(
+            "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+            "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+            986_000_000L,
+            "1.5b"
+        ),
+        QWEN_3B(
+            "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+            "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+            1_930_000_000L,
+            "3b"
+        ),
+        QWEN_0_5B(
+            "qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+            "https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+            491_400_064L,
+            "0.5b"
+        );
+
+        private final String nomeArquivo;
+        private final String urlDownload;
+        private final long tamanhoBytes;
+        private final String alias;
+
+        PerfilModelo(String nomeArquivo, String urlDownload, long tamanhoBytes, String alias) {
+            this.nomeArquivo = nomeArquivo;
+            this.urlDownload = urlDownload;
+            this.tamanhoBytes = tamanhoBytes;
+            this.alias = alias;
+        }
+
+        public String getNomeArquivo() { return nomeArquivo; }
+        public String getUrlDownload() { return urlDownload; }
+        public long getTamanhoBytes() { return tamanhoBytes; }
+        public String getAlias() { return alias; }
+
+        public static PerfilModelo resolver(String input) {
+            if (input == null || input.isBlank()) return QWEN_1_5B;
+            String lower = input.toLowerCase();
+            if (lower.contains("3b")) return QWEN_3B;
+            if (lower.contains("0.5b") || lower.contains("500m")) return QWEN_0_5B;
+            return QWEN_1_5B;
+        }
+    }
+
+    private static final PerfilModelo PERFIL_PADRAO = PerfilModelo.QWEN_1_5B;
+    private static final String MODELO_PADRAO = PERFIL_PADRAO.getNomeArquivo();
+    private static final String HUGGINGFACE_URL = PERFIL_PADRAO.getUrlDownload();
+    private static final long TAMANHO_ESPERADO = PERFIL_PADRAO.getTamanhoBytes();
 
     private String modeloPath;
     private int gpuLayers;
@@ -141,7 +187,13 @@ public final class AgentConfig {
 
     public static String getNomeModeloPadrao() { return MODELO_PADRAO; }
     public static String getUrlDownload() { return HUGGINGFACE_URL; }
+    public static String getUrlDownload(String nomeArquivo) {
+        return PerfilModelo.resolver(nomeArquivo).getUrlDownload();
+    }
     public static long getTamanhoEsperado() { return TAMANHO_ESPERADO; }
+    public static long getTamanhoEsperado(String nomeArquivo) {
+        return PerfilModelo.resolver(nomeArquivo).getTamanhoBytes();
+    }
     public static Path getModelsDir() { return MODELS_DIR; }
     public static Path getConfigDir() { return CONFIG_DIR; }
 }

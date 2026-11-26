@@ -14,7 +14,6 @@ import java.time.Duration;
  */
 public final class ModelDownloader {
 
-    private static final long TAMANHO_PADRAO = 2_104_932_800L;
     private static final int BUFFER_SIZE = 8192;
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
@@ -27,11 +26,18 @@ public final class ModelDownloader {
      */
     public static Path baixarSeNecessario(String modeloPath) throws IOException, InterruptedException {
         Path path = Path.of(modeloPath);
+        String nomeArquivo = path.getFileName().toString();
+        long tamanhoEsperado = AgentConfig.getTamanhoEsperado(nomeArquivo);
+        long margemTolerancia = Math.min(2_000_000L, (long) (tamanhoEsperado * 0.03));
 
         // Se arquivo existe e tamanho bate, ok
         if (Files.exists(path)) {
             long tamanho = Files.size(path);
-            if (tamanho >= TAMANHO_PADRAO - 1_000_000) { // margem de 1MB
+            if (tamanho >= tamanhoEsperado - margemTolerancia) {
+                return path;
+            }
+            // Se for um modelo customizado local (ex: thz-coder-*.gguf), preserva o arquivo existente
+            if (!nomeArquivo.startsWith("qwen2.5-coder-")) {
                 return path;
             }
             // Arquivo incompleto — remover e baixar novamente
@@ -40,22 +46,23 @@ public final class ModelDownloader {
         }
 
         // Criar diretório pai se necessário
-        Files.createDirectories(path.getParent());
+        if (path.getParent() != null) {
+            Files.createDirectories(path.getParent());
+        }
 
         // Baixar
-        String nomeModelo = path.getFileName().toString();
-        System.out.println("[THZ-Agent] Baixando modelo: " + nomeModelo);
-        System.out.println("[THZ-Agent] Tamanho: ~" + formatarBytes(TAMANHO_PADRAO));
-        System.out.println("[THZ-Agent] Fonte: HuggingFace (Qwen/Qwen2.5-Coder-3B-Instruct-GGUF)");
+        System.out.println("[THZ-Agent] Baixando modelo: " + nomeArquivo);
+        System.out.println("[THZ-Agent] Tamanho: ~" + formatarBytes(tamanhoEsperado));
+        System.out.println("[THZ-Agent] Fonte: HuggingFace (" + nomeArquivo + ")");
         System.out.println();
 
-        baixarComProgresso(AgentConfig.getUrlDownload(), path);
+        baixarComProgresso(AgentConfig.getUrlDownload(nomeArquivo), path, tamanhoEsperado);
 
         // Verificar tamanho final
         long tamanhoFinal = Files.size(path);
-        if (tamanhoFinal < TAMANHO_PADRAO - 1_000_000) {
+        if (tamanhoFinal < tamanhoEsperado - margemTolerancia) {
             Files.delete(path);
-            throw new IOException("Download incompleto: esperado ~" + formatarBytes(TAMANHO_PADRAO)
+            throw new IOException("Download incompleto: esperado ~" + formatarBytes(tamanhoEsperado)
                 + ", recebido " + formatarBytes(tamanhoFinal));
         }
 
@@ -64,7 +71,7 @@ public final class ModelDownloader {
         return path;
     }
 
-    private static void baixarComProgresso(String urlStr, Path destino) throws IOException, InterruptedException {
+    private static void baixarComProgresso(String urlStr, Path destino, long tamanhoPadrao) throws IOException, InterruptedException {
         HttpClient client = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.ALWAYS)
             .connectTimeout(TIMEOUT)
@@ -83,7 +90,7 @@ public final class ModelDownloader {
             throw new IOException("HTTP " + response.statusCode() + " ao baixar modelo");
         }
 
-        long totalEstimado = TAMANHO_PADRAO;
+        long totalEstimado = tamanhoPadrao;
         String contentLength = response.headers().firstValue("Content-Length").orElse(null);
         if (contentLength != null) {
             try { totalEstimado = Long.parseLong(contentLength); } catch (NumberFormatException ignored) {}
